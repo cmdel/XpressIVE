@@ -1,0 +1,194 @@
+model Assignement_1
+uses "mmxprs"; 
+
+declarations
+! Define the Parameters
+  FactoryNames: set of integer
+  Warehouse: set of string
+  Distance: array(FactoryNames, Warehouse) of integer
+  Demand: array(Warehouse) of integer
+  Capacity: array(FactoryNames) of integer
+  b: integer
+  M: integer
+  b_discount: real
+  FixedCost: real
+  FixedSavings: array(FactoryNames) of integer
+end-declarations
+
+initializations from "data.dat"
+	FactoryNames Warehouse Distance Demand Capacity FixedCost b M FixedSavings b_discount
+end-initializations
+
+declarations
+! Define the Variables of the problem
+  Units: array(FactoryNames, Warehouse) of mpvar
+  Factory:array(FactoryNames) of mpvar
+  Sent:array(FactoryNames, Warehouse) of mpvar
+end-declarations
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!! Define used procedures !!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!forward procedure reportCSV 
+forward procedure print_status 
+forward procedure reportCSV
+
+! Set the ExcelOutput to true in order to output a CSV file
+
+ExcelOutput := false
+ExcelFile := "Supply.csv"
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!! Define the operational constraints !!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+! Demand must be met
+forall ( j in Warehouse) do
+	DemandCS(j) :=  sum( i in FactoryNames ) Units(i, j) >= Demand(j)
+end-do
+
+
+! Capacity must not be exceeded
+forall ( i in FactoryNames) do
+	CapacityCS(i) :=  sum( j in Warehouse ) Units(i, j) <= Capacity(i)
+end-do
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!! State the objective functions for all scenarios!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!
+! Intitial Agreement
+!
+Cost := sum(i in FactoryNames,j in Warehouse) b * Distance(i,j) * Units(i,j)	
+minimize(Cost)
+writeln("Intitial Agreement")
+writeln("==================")
+print_status
+reportCSV
+
+!
+! Ammended agreement
+!
+forall ( f in FactoryNames, w in Warehouse) do 
+	Sent(f,w) is_binary
+	Units(f,w) <= Sent(f,w) * M
+end-do
+
+Cost := sum(i in FactoryNames,j in Warehouse) (b * b_discount * Distance(i,j) * Units(i,j) + FixedCost * Sent(i,j))
+
+minimize(Cost)
+
+writeln
+writeln
+writeln("Ammended Agreement")
+writeln("==================")
+print_status
+reportCSV
+
+! Closing down factories
+
+forall ( f in FactoryNames) do 
+	Factory(f) is_binary
+end-do
+
+! Demand must be met
+forall ( j in Warehouse) do
+	DemandCS(j) :=  sum( i in FactoryNames )  Units(i, j) >= Demand(j)
+end-do
+
+
+
+! Capacity must not be exceeded
+forall ( i in FactoryNames) do
+	CapacityCS(i) :=  sum( j in Warehouse )  Units(i, j) <= Capacity(i) * Factory(i)
+end-do
+
+Cost := sum(i in FactoryNames,j in Warehouse) b * Distance(i,j) * Units(i,j) - sum(i in FactoryNames)  FixedSavings(i) * (1-Factory(i))
+minimize(Cost)
+
+writeln
+writeln
+writeln("Option to close a factory")
+writeln("=========================")
+print_status
+reportCSV
+
+
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Procedures defined in this model !
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+! Procedure to print final status of problem
+procedure print_status
+ declarations
+  status: string
+ end-declarations
+
+ case getprobstat of
+  XPRS_OPT: status:="Optimum found"
+  XPRS_UNF: status:="Unfinished"
+  XPRS_INF: status:="Infeasible"
+  XPRS_UNB: status:="Unbounded"
+  XPRS_OTH: status:="Failed"
+  else status:="???"
+ end-case
+
+writeln("Problem status: ", status)
+ if ExcelOutput then
+ 	writeln("CSV file written to disk")
+ end-if
+ 
+end-procedure
+
+
+! Procedure to append output to a CSV file
+procedure reportCSV
+	writeln
+		if ExcelOutput	then
+			fopen(ExcelFile, F_APPEND)
+			write(",")
+			forall( j in Warehouse) do
+				write(Warehouse(j), ",")
+			end-do
+			
+			writeln
+				
+			forall ( i in FactoryNames) do
+					write(i,",")
+					forall( j in Warehouse) do
+						write(getsol(Units(i,j)), "," )
+					end-do
+					writeln
+			end-do
+			
+			writeln("Total Costs,", getsol(Cost))
+			fclose(F_APPEND)
+			
+			else
+				write("  ")
+				forall( j in Warehouse) do
+				write(Warehouse(j), " ")
+				end-do
+			
+				writeln
+				
+				forall ( i in FactoryNames) do
+					write(i," ")
+						forall( j in Warehouse) do
+							write(getsol(Units(i,j)), " " )
+						end-do
+						writeln
+				end-do
+				writeln
+				writeln("Total Costs:= ", getsol(Cost))
+			end-if
+			
+end-procedure
+
+end-model
+

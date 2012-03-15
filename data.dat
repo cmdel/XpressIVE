@@ -1,0 +1,19 @@
+
+FactoryNames:[1 2 3 4 5 6]
+Warehouse:["A" "B" "C" "D" "E" "F" "G" "H" "I" "J"]
+
+Distance:[
+				3 3 8 7 5 7 3 4 8 5
+				4 5 7 7 7 4 6 5 8 7
+				5 6 5 6 3 5 2 7 6 4
+				5 6 4 5 6 4 8 6 4 7
+				7 5 3 6 4 5 7 4 6 3
+				4 5 8 7 3 6 5 7 5 3]
+
+Demand:[3 3 2 4 3 2 2 3 3 2]
+Capacity:[8 6 6 5 3 3]
+FixedCost: 1.85
+b: 1
+b_discount:0.75
+FixedSavings:[10 8 8 7 6 7]
+M:10
