@@ -1,0 +1,82 @@
+model CashFlow
+uses "mmxprs"
+
+declarations
+	NMonths: integer
+end-declarations
+initialisations from "CashFlow.dat"
+	NMonths
+end-initialisations
+
+declarations
+	Months = 1..NMonths
+	NetCashFlow: array(Months) of real
+	BorrowingRate, BorrowingLimit, BondRate, InvestmentRate: real
+	BondPeriod: integer
+end-declarations
+initialisations from "CashFlow.dat"
+	NetCashFlow
+	BorrowingRate BorrowingLimit BondRate BondPeriod
+	InvestmentRate
+end-initialisations
+
+declarations
+	Borrowing: array(Months) of mpvar
+	Bond:   array(Months) of mpvar
+	Investment: array(Months) of mpvar
+end-declarations
+
+declarations
+	MonthNames: array(Months) of string
+end-declarations
+
+MonthNames(1) := "Jan"
+MonthNames(2) := "Feb"
+MonthNames(3) := "Mar"
+MonthNames(4) := "Apr"
+MonthNames(5) := "May"
+MonthNames(6) := "Jun"
+
+fopen("CashFlow2.csv", F_OUTPUT)
+
+forall(Month in Months) do
+	if Month = 1 then
+		CashInflow := Borrowing(Month)
+		CashOutflow := Investment(Month)
+	else
+		CashInflow := 
+			Borrowing(Month) - Borrowing(Month-1) +
+			Investment(Month-1)*InvestmentRate/100
+		CashOutflow := 
+			Investment(Month) - Investment(Month-1) +
+			Borrowing(Month-1)*BorrowingRate/100
+	end-if
+
+	if Month <= NMonths-BondPeriod then
+		CashInflow := CashInflow + Bond(Month)
+	end-if
+	if Month > BondPeriod then
+		CashOutflow := CashOutflow +
+			Bond(Month-BondPeriod)*(1+BondRate/100)
+	end-if
+
+	CashFlowCS(Month) := CashOutflow - CashInflow = NetCashFlow(Month)
+	Borrowing(Month) <= BorrowingLimit
+end-do
+Borrowing(NMonths) = 0
+
+PlanValue := Investment(NMonths)
+maximize(PlanValue)
+
+writeln
+writeln("   , Borrow, Bond  , Invest")
+forall(Month in Months)
+	writeln(MonthNames(Month), ", ",
+		strfmt(getsol(Borrowing(Month)), 6,2), ", ",
+		strfmt(getsol(Bond(Month)), 6,2), ", ",
+		strfmt(getsol(Investment(Month)), 6,2))		
+writeln("Optimal objective = ", strfmt(getobjval, 6, 2))
+
+fclose(F_OUTPUT)
+
+end-model

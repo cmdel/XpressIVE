@@ -1,0 +1,370 @@
+model AllScenarios
+uses "mmxprs"; !gain access to the Xpress-Optimizer solver
+
+declarations
+! ...
+  Years = 1..3
+  Months = 1..12 
+  Products: set of string
+  DemandProducts, ContractProducts: set of string
+  Ingredients: set of string
+  MonthName: set of string
+  ProductPrice: array(Products) of real
+  IngredientCost: array(Ingredients) of real
+  ProductionCapacity: integer
+  Demand: array(DemandProducts,Months) of integer
+  Availability: array(Ingredients) of integer
+  Proportions: array(Ingredients, Products) of real
+  WarehouseSize, Contract: integer
+  StorageCost: real
+  Costs, Rent, RepaymentFraction : real
+  MinRepaymentRate, InterestRate, DiscountRate: real
+  InitialLoan: integer
+end-declarations
+
+initializations from "BerryFarmExpansion.dat"
+	Products Ingredients MonthName 
+	ProductPrice IngredientCost ProductionCapacity
+	Demand Availability Proportions WarehouseSize
+	StorageCost Rent RepaymentFraction InitialLoan
+	MinRepaymentRate InterestRate DiscountRate
+	DemandProducts ContractProducts Contract
+end-initializations
+
+declarations
+	Make: array(Products, Months, Years) of mpvar
+	Sell: array(Products, Months, Years) of mpvar 
+	Store: array(Products, Months, Years) of mpvar
+	Repayment: array(Months, Years)of mpvar
+    Interest: array(Months, Years)of mpvar
+    LoanBalance: array(Months, Years) of mpvar
+end-declarations
+
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!! Define used procedures !!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+forward procedure reportCSV 
+forward procedure print_status
+
+
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!! Boolean Conditionals for the six scenarios!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+! Set true only the scenario you wish to assess
+scenario1 := true
+scenario2 := false
+scenario3 := false
+scenario4 := false
+scenario5 := false
+scenario6 := false
+
+! Set the ExcelOutput to true in order to output a CSV file
+ExcelOutput := false
+
+! If ShowAll is set to True it will output a verbose printout
+ShowAll := true
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!! Define the working model in the output!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+writeln("___________________________________________________________________________________________________________________________________________")
+
+
+if scenario1 then
+	Contracting := true
+	Renting := false
+	Buying := false
+	write("Begin running Scenario 1: w/o Renting, w/o Buying, with Contract")
+	ExcelFile := "Scenario1.csv"
+end-if
+
+if scenario2 then
+	Contracting := false
+	Renting := false
+	Buying := false
+	write("Begin running Scenario 2: w/o Renting, w/o Buying, w/o Contract")
+	ExcelFile := "Scenario2.csv"
+end-if
+
+if scenario3 then
+	Contracting := true
+	Renting := true
+	Buying := false
+	write("Begin running Scenario 3: Renting, with Contract")
+	ExcelFile := "Scenario3.csv"
+end-if
+
+if scenario4 then
+	Contracting := false
+	Renting := true
+	Buying := false
+	write("Begin running Scenario 4: Renting, w/o Contract") 
+	ExcelFile := "Scenario4.csv"
+end-if
+
+if scenario5 then
+	Contracting := true
+	Renting := false
+	Buying := true
+	write("Begin running Scenario 5: Buying, with Contract")
+	ExcelFile := "Scenario5.csv"
+end-if
+
+if scenario6 then
+	Contracting := false
+	Renting := false
+	Buying := true
+	write("Begin running Scenario 6: Buying, w/o Contract")
+	ExcelFile := "Scenario6.csv" 
+end-if
+	
+
+writeln(" for ", Years, " Years")
+
+
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!! Set up the different scenarios !!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+if (Renting OR Buying) then
+	ProductionCapacity := ProductionCapacity *2
+	WarehouseSize := WarehouseSize *2
+end-if
+
+
+
+
+forall(y in Years)do
+    forall(m in Months)do
+        forall(i in Ingredients) do
+	        TotalUse(i, m, y) := sum(p in Products) Proportions(i, p)*Make(p, m, y)
+	        SupplyCS(i, m, y) := TotalUse(i, m, y) <= Availability(i)
+        end-do   
+      
+        forall(p in DemandProducts) do 
+				DemandCS(p,m,y) := Sell(p,m,y) <= Demand(p,m)
+        end-do
+        
+		forall(p in ContractProducts) do 
+			if (Contracting) then 
+				ContractCS(p,m,y) := Sell(p,m,y) = Contract 
+				else
+					ContractCS(p,m,y) := Sell(p,m,y) = 0
+				end-if
+			
+		end-do
+		
+		 forall(p in Products) do 
+		
+            if(y=1)then
+                if (m > 1) then
+	                InventoryCS(p, m, y) := Store(p, m, y) = Store(p, m-1, y) + Make(p, m, y) - Sell(p, m, y)
+	            else
+		            InventoryCS(p, m, y) := Store(p, m, y) = Make(p, m, y) - Sell(p, m, y)
+	            end-if
+            else
+	            if (m > 1) then
+		            InventoryCS(p, m, y) := Store(p, m, y) = Store(p, m-1, y) + Make(p, m, y) - Sell(p, m, y)
+	            else
+                    InventoryCS(p, m, y) := Store(p, m, y) = Store(p, 12, y-1)+ Make(p, m, y) - Sell(p, m, y)
+	            end-if
+	        end-if
+        end-do
+		
+        TotalProduction(m, y) := sum(p in Products) Make(p, m, y)
+        CapacityCS(m, y) := TotalProduction(m, y) <= ProductionCapacity
+        
+        TotalStorage(m, y) := sum(p in Products) ( Store(p, m, y) + Sell(p, m, y))
+        StorageCS(m, y) := TotalStorage(m, y) <= WarehouseSize
+        
+	    Discount(m, y) := (1-DiscountRate)^((y-1)*12+m-1) 
+	    
+	    if Buying then
+		    	if(y=1)then
+	            if(m=1)then
+	                LoanBalanceCS(m, y) := LoanBalance(m, y) = InitialLoan
+	            else
+	          	    LoanBalanceCS(m, y) := LoanBalance(m, y) = LoanBalance(m-1, y)-Repayment(m-1, y)+Interest(m-1, y)
+	            end-if
+	        else
+	          	if(m=1)then
+	                LoanBalanceCS(m, y):=LoanBalance(m, y)=LoanBalance(12, y-1)-Repayment(12, y-1)+Interest(12, y-1)
+	            else
+	                LoanBalanceCS(m, y):=LoanBalance(m, y)=LoanBalance(m-1, y)-Repayment(m-1, y)+Interest(m-1, y)
+	            end-if 
+	        end-if
+	        LoanRepaidCS := (LoanBalance(12,3)-Repayment(12, 3)+Interest(12, 3))<=((1-RepaymentFraction)*InitialLoan)
+	        Interest(m, y) = LoanBalance(m, y)* InterestRate
+	        RepaymentCS(m, y) := Repayment(m, y) >= MinRepaymentRate*LoanBalance(m, y) 
+	    end-if
+	    
+    end-do
+    
+   
+end-do
+
+TotalIncome:=sum(p in Products, m in Months, y in Years) ProductPrice(p) * Sell(p, m, y) * Discount(m, y)
+
+
+TotalStorageCost := sum(p in Products, m in Months, y in Years) ( Store(p, m, y) + Sell(p, m, y)) * StorageCost * Discount(m, y)
+TotalIngredientsCost := sum(i in Ingredients, m in Months, y in Years) IngredientCost(i) * TotalUse(i, m, y) * Discount(m, y)
+ if Renting then
+	RentingCosts := sum(m in Months, y in Years) Rent * Discount(m, y)
+end-if
+
+if Buying then
+	BorrowingCosts := sum(m in  Months, y in Years) Repayment(m, y) * Discount(m, y)
+end-if
+
+
+TotalCost := TotalIngredientsCost + TotalStorageCost + RentingCosts + BorrowingCosts
+
+
+TotalProfit := TotalIncome-TotalCost
+
+maximize(TotalProfit)
+
+
+! Write out to a csv Excel file or to terminal depending on the boolean conditional set
+reportCSV
+
+! Report the status of the solution
+print_status
+
+writeln("End running model BerryFarm")
+
+
+
+
+
+
+
+
+
+
+
+
+
+procedure reportCSV
+	writeln("___________________________________________________________________________________________________________________________________________")
+	writeln
+		if ExcelOutput	then
+			fopen(ExcelFile, F_OUTPUT)
+			forall(y in Years) do
+			writeln(">> For year ",y," we have:")
+			writeln(",,Make,,,Sell,,,Store,,,Demand,,,Demand not satisfied") 
+			write("Month") 
+			write(", Total Production")
+			forall(p in Products) write(",", p)
+			forall(p in Products) write(",", p)
+			forall(p in Products) write(",", p)
+			forall(p in Products) write(",", p)
+			forall(p in Products) write(",", p)
+			writeln
+			forall(m in Months)	do
+				write(MonthName(m))
+				write(",", getsol(TotalProduction(m,y)))
+				forall(p in Products) write(",", getsol(Make(p, m, y)))
+				forall(p in Products) 	write(",", getsol(Sell(p, m, y)))
+				forall(p in Products) 	write(",", getsol(Store(p, m, y)))
+				forall(p in DemandProducts) 	write(",", Demand(p, m))
+				forall(p in ContractProducts)	write(",", -getslack(ContractCS(p, m, y)))
+				forall(p in DemandProducts) 	write(",", -getslack(DemandCS(p, m, y)))
+				forall(p in ContractProducts)	write(",",getact(ContractCS(p, m, y))-Contract)
+				
+				writeln
+			end-do
+			writeln
+			end-do
+			writeln("Revenue,", getsol(TotalIncome))
+			writeln("Total Costs,", getsol(TotalCost))
+			writeln("NetProfit,", getsol(TotalProfit))
+			writeln("Index,",  strfmt(getsol(TotalProfit) / getsol(TotalIncome), 4, 2))
+			fclose(F_OUTPUT)
+			
+			else
+				forall(y in Years) do
+				writeln
+				writeln
+				writeln
+				writeln(">> For year ",y," we have:")
+				if ShowAll then
+					writeln("\t|Regular\t\t\t\t\t|Premium\t\t\t\t\t|Budget") 
+					! The DemandGap is effectively the demand that is not met each month. Negative means not met demand hence lost profit
+					writeln("Month\t|Make\tSell\tStore\tDemand\tDemandGap",
+								"\t|Make\tSell\tStore\tDemand\tDemandGap",
+								"\t|Make\tSell\tStore\tContr\tDemandGap") 
+					forall(m in Months) do
+							write(m,"\t|")
+						forall(p in DemandProducts) do
+							write(strfmt(getsol(Make(p, m, y)),6,0),"\t")
+							write(strfmt(getsol(Sell(p, m, y)),6,0),"\t")
+							write(strfmt(getsol(Store(p, m, y)),6,0),"\t")
+							write(strfmt(Demand(p, m),6,0),"\t")
+							write(strfmt(getslack(DemandCS(p, m, y)),6,0),"\t\t|")
+						end-do
+						forall( t in ContractProducts) do 
+								write(  
+								strfmt(getsol(Make(t, m, y)),6,0),"\t",
+								strfmt(getsol(Sell(t, m, y)),6,0),"\t",
+								strfmt(getsol(Store(t, m, y)),6,0),"\t" )
+								write(strfmt(Contract,6,0),"\t")  
+								write(strfmt(Contract - getact(ContractCS(t, m, y)),6,0),"\t|")
+						end-do
+						
+							writeln
+							
+					end-do
+				end-if	
+				end-do
+			end-if
+			writeln
+			writeln("__________________________________")
+			writeln("| Revenue: \t\t£", getsol(TotalIncome),"K")
+			writeln("|_________________________________|")
+			writeln("| Total Costs: \t\t£", getsol(TotalCost),"K")
+			writeln("|_________________________________|")
+			if Buying then
+				writeln("| Total Loan Payments: \t£", getsol(BorrowingCosts),"K")
+			writeln("|_________________________________|")
+				writeln("| Outstanding Loan: \t£", getsol(LoanBalance(12,3)) - getsol(Repayment(12,3)),"K")
+			writeln("|_________________________________|")
+			end-if
+			writeln("| NetProfit: \t\t£", getsol(TotalProfit),"K")
+			writeln("|_________________________________|")
+			writeln("| NP/R Index: \t\t", strfmt(getsol(TotalProfit) / getsol(TotalIncome), 4, 2))
+			writeln("|_________________________________|")
+			writeln
+			writeln
+end-procedure
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Procedure to print final status of problem
+procedure print_status
+ declarations
+  status: string
+ end-declarations
+
+ case getprobstat of
+  XPRS_OPT: status:="Optimum found"
+  XPRS_UNF: status:="Unfinished"
+  XPRS_INF: status:="Infeasible"
+  XPRS_UNB: status:="Unbounded"
+  XPRS_OTH: status:="Failed"
+  else status:="???"
+ end-case
+
+ writeln("Problem status: ", status)
+end-procedure
+end-model

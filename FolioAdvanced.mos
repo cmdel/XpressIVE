@@ -1,0 +1,133 @@
+model folio
+uses "mmxprs"
+declarations
+   ShareIndices: set of integer
+   ShareName: array(ShareIndices) of string
+   Return: array(ShareIndices) of real
+   Risky: set of integer
+   NorthAmerican: set of integer
+   MinNorthAmerican, MaxFrac: real
+end-declarations
+!
+!Read in the problem data.
+!The names in the model must match the names in the data file but the order of the
+!names in the "initializations" block does not matter.
+!
+initializations from "Folio.dat"
+   ShareIndices ShareName Return
+   Risky NorthAmerican
+   MinNorthAmerican MaxFrac
+end-initializations
+declarations
+   Frac: array(ShareIndices) of mpvar
+   ExcelOutput: boolean
+end-declarations 
+!
+!Tell Xpress to look for the procedure so it knows what
+!it is when called
+!
+forward procedure solve
+forward procedure report
+!
+!Indicate whether or not output should be sent to
+!the screen or to a .csv file for Excel
+!
+ExcelOutput := false
+!
+!Define the functions total risk and total return
+!
+TotalReturn := sum(s in ShareIndices) Frac(s)*Return(s)
+TotalRisk   := sum(s in Risky) Frac(s)
+!
+!Define the constraints
+!
+TotalFracCS := sum(s in ShareIndices) Frac(s) = 1
+NorthAmericanCS := sum(s in NorthAmerican) Frac(s) >= MinNorthAmerican
+!
+!Define the upper bounds
+!
+forall (s in ShareIndices) Frac(s) <= MaxFrac
+
+if ExcelOutput then
+!
+!Open a file
+!
+	fopen("Folio.csv", F_OUTPUT)
+	write("Risk,Return")
+	forall(s in ShareIndices) write(",", ShareName(s))
+	writeln
+end-if
+!
+!Initialise limits and increment for MinReturn
+!
+FmMinReturn := 0.0
+ToMinReturn := 25.0
+DlMinReturn := 1.0
+!
+!Start the loop over values of MinReturn
+!Subtract a (small) multiple of TotalReturn to counter non-uniqueness of the LP
+!
+MinReturn := FmMinReturn
+Eps := 1e-8
+RiskObjective := TotalRisk - Eps*TotalReturn
+repeat
+!
+!Define the constraint involving MaxRisk
+!
+	ReturnCS := TotalReturn >= MinReturn
+	solve
+!
+!End the loop over values of MaxRisk
+!
+	MinReturn += DlMinReturn
+until MinReturn > ToMinReturn
+
+procedure solve
+	minimize(RiskObjective)	
+	if (getprobstat = XPRS_OPT) then
+!
+!The solution is optimal
+!
+		report 
+	else
+!
+!Make some comment if the solution is not optimal.
+!writeln on its own just produces a blank line
+!
+		if not ExcelOutput then
+			writeln
+		end-if
+		writeln("No solution for limit on return of ", strfmt(MinReturn, 5, 2))
+	end-if
+end-procedure
+
+procedure report
+if ExcelOutput then
+	write(getsol(TotalRisk), ",", getsol(TotalReturn))
+	forall(s in ShareIndices) write(",", getsol(Frac(s)))
+	writeln
+else
+!
+!The screen output makes use of "strfmt" so that the output appears in neat
+!columns so can be read easily
+!
+!For real values the second argument is the (ideal) field width and
+!the third argument is the number of decimal places. 
+!If the number can't be written out in the ideal given field width,
+!a greater field width is used.
+!
+!For integer values, there is just an (ideal) field width
+!
+	writeln	
+	writeln("Solution for limit on return of ", strfmt(MinReturn, 5, 2))
+ 	writeln("Minimum risk is  ", strfmt(getobjval, 6, 2))
+	writeln
+ 	writeln("Optimal portfolio:")
+ 	forall(s in ShareIndices)  
+		writeln(strfmt(ShareName(s), 17), ": ", strfmt(100*getsol(Frac(s)), 6, 2), "%")
+  
+ 	writeln
+ 	writeln("Proportion of investment in risky          shares is ", strfmt(100*getsol(TotalRisk), 6, 2), "%")
+ 	writeln("Proportion of investment in North American shares is ", strfmt(100*getact(NorthAmericanCS), 6, 2), "%")
+end-if
+end-procedure
